@@ -1,1 +1,41 @@
+# Arquitetura
 
+Frontend:
+Lovable
+
+↓
+
+Backend:
+Supabase
+
+↓
+
+Banco:
+PostgreSQL
+
+↓
+
+Integrações:
+
+HubSpot
+ManyChat
+Google Calendar
+Calendly
+WhatsApp
+
+↓
+
+Camada de IA:
+
+Claude
+Cursor
+
+## Requisitos
+
+Multiempresa (Multi-Tenant)
+
+Permissões por perfil
+
+Isolamento de dados entre empresas
+
+Escalabilidade para milhares de usuários
