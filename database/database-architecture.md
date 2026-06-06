@@ -1,974 +1,578 @@
 # Casa Di Amo OS Database Architecture
 
-## Purpose
+## 1. Entities
 
-This document defines the initial database architecture for Casa Di Amo OS.
-It is intentionally conceptual and does not include SQL implementation.
-
-Casa Di Amo OS is a multi-tenant SaaS platform for service businesses. The database must support white-label companies, role-based access, customer management, scheduling, CRM, marketing, automations, payments, and reporting while preserving strict data isolation between companies.
-
-## Architectural Principles
-
-- Multi-tenant first: every business-owned record must belong to a company tenant.
-- Security first: access must be enforced with role permissions and PostgreSQL Row Level Security.
-- Supabase native: authentication should integrate with Supabase Auth while business profiles live in application tables.
-- Integration ready: external systems such as HubSpot, ManyChat, WhatsApp, Google Calendar, Calendly, and payment providers must map to internal entities without becoming the source of truth by default.
-- Auditability: important business events, automation actions, payment changes, and integration syncs must be traceable.
-- Scalability: high-volume records such as messages, automation events, appointment history, and report snapshots should be modeled separately from core operational records.
-
-## Tenant Model
-
-The company is the primary tenant boundary.
-
-All operational modules should be scoped by `company_id`, either directly or through a parent entity that is scoped to a company. Cross-company access should be avoided except for platform-level administration.
-
-Recommended tenant hierarchy:
-
-1. Platform
-2. Company
-3. Company member
-4. Role and permissions
-5. Business records owned by the company
-
-## Entities
-
-### 1. Authentication and Identity
+### Authentication
 
 #### `auth.users`
 
-Supabase-managed authentication identity.
+Supabase Auth identity record.
 
-Responsibilities:
-
-- Login identity.
-- Email and phone verification.
-- Password and OAuth lifecycle.
-- Session and token issuance.
-
-Notes:
-
-- This should not store business profile data beyond authentication metadata.
-- Application records should reference this identity through an application user profile.
+- Owns login identity, verified email, verified phone, authentication providers, and session lifecycle.
+- Must not be used as the business user profile.
+- Referenced by `user_profiles`.
 
 #### `user_profiles`
 
-Application-level user profile linked to Supabase Auth.
+Application profile for a human user.
 
-Core attributes:
-
-- User profile ID.
-- Auth user ID.
-- Full name.
-- Email.
-- Phone.
-- Avatar URL.
-- Locale and timezone.
-- Account status.
-- Created and updated timestamps.
-
-Tenant behavior:
-
-- A user profile may belong to multiple companies through memberships.
+- Stores name, contact details, avatar, locale, timezone, user status, and profile preferences.
+- Links one application profile to one Supabase Auth identity.
+- Can access one or more companies through `company_members`.
 
 #### `roles`
 
-Reusable role definitions.
+Role definitions for platform and company access.
 
-Core attributes:
-
-- Role ID.
-- Company ID for tenant-specific roles, nullable for platform roles.
-- Name.
-- Description.
-- Scope.
-- Active status.
-
-Examples:
-
-- Owner.
-- Admin.
-- Manager.
-- Staff.
-- Finance.
-- Marketing.
-- Viewer.
+- Stores role name, role scope, description, status, and optional company ownership.
+- Supports platform roles and company-specific roles.
 
 #### `permissions`
 
-Atomic permission definitions.
+Atomic permission catalog.
 
-Core attributes:
-
-- Permission ID.
-- Permission key.
-- Module.
-- Description.
-
-Examples:
-
-- `customers.read`.
-- `appointments.manage`.
-- `payments.refund`.
-- `reports.view`.
-- `automations.publish`.
+- Stores permission key, module, action, and description.
+- Defines the stable permission vocabulary used by the application.
 
 #### `role_permissions`
 
-Join entity between roles and permissions.
+Role-to-permission assignment.
 
-Core attributes:
+- Connects roles to the permissions they grant.
+- Enables reusable role templates and company-specific permission sets.
 
-- Role ID.
-- Permission ID.
+#### `user_sessions_audit`
 
-### 2. Companies
+Security history for authentication-sensitive activity.
+
+- Tracks login, logout, failed login, password reset, MFA changes, and suspicious access events.
+- Used for account security review and compliance reporting.
+
+### Companies
 
 #### `companies`
 
-Primary tenant entity.
+Primary tenant boundary.
 
-Core attributes:
-
-- Company ID.
-- Legal name.
-- Trading name.
-- Slug.
-- Industry.
-- Company status.
-- Default locale.
-- Default timezone.
-- Created and updated timestamps.
-
-Responsibilities:
-
-- Defines tenant boundary.
-- Owns customers, services, appointments, CRM, marketing, automations, payments, and reports.
+- Stores legal name, trading name, slug, industry, status, default locale, default timezone, and lifecycle timestamps.
+- Owns all operational records for a tenant.
+- Represents the white-label business account.
 
 #### `company_settings`
 
-Configurable company preferences.
+Company-level operational configuration.
 
-Core attributes:
-
-- Company ID.
-- Scheduling settings.
-- Notification settings.
-- CRM settings.
-- Payment settings.
-- Marketing settings.
-- Data retention settings.
+- Stores scheduling, CRM, marketing, notification, payment, report, and data-retention preferences.
+- Keeps tenant configuration separate from the core company identity.
 
 #### `company_branding`
 
 White-label branding configuration.
 
-Core attributes:
-
-- Company ID.
-- Logo URL.
-- Primary color.
-- Secondary color.
-- Domain settings.
-- Public business profile settings.
+- Stores logo, colors, domain configuration, public profile settings, and customer-facing brand metadata.
+- Supports white-label UI and communication channels.
 
 #### `company_locations`
 
-Physical or operational service locations.
+Physical or virtual service locations.
 
-Core attributes:
-
-- Location ID.
-- Company ID.
-- Name.
-- Address.
-- Phone.
-- Email.
-- Timezone.
-- Active status.
+- Stores address, contact details, timezone, availability status, and location metadata.
+- Used by appointments, services, staff availability, and reports.
 
 #### `company_members`
 
-Membership between a user profile and a company.
+Tenant membership record.
 
-Core attributes:
+- Connects a `user_profile` to a `company`.
+- Stores role, membership status, invitation status, join date, and access state.
+- Determines which tenant context a user may operate within.
 
-- Company member ID.
-- Company ID.
-- User profile ID.
-- Role ID.
-- Membership status.
-- Invitation status.
-- Joined timestamp.
+#### `company_invitations`
 
-Responsibilities:
+Pending company access invitation.
 
-- Determines which companies a user can access.
-- Provides tenant-specific role assignment.
+- Stores invited email, invited role, invitation status, inviter, expiration, and acceptance state.
+- Supports secure onboarding before a user profile exists.
 
-### 3. Customers
+### Users
+
+#### `staff_profiles`
+
+Company-specific staff metadata.
+
+- Extends a `company_member` with staff-specific details such as job title, public bio, booking visibility, service capacity, and staff status.
+- Allows some users to be bookable service providers.
+
+#### `staff_working_hours`
+
+Recurring staff schedule.
+
+- Stores regular working days, start time, end time, break windows, location, and effective date range.
+- Used to calculate appointment availability.
+
+#### `staff_time_off`
+
+Staff unavailability.
+
+- Stores vacations, sick leave, blocked time, and other exceptions.
+- Prevents booking during unavailable periods.
+
+### Customers
 
 #### `customers`
 
 Primary customer record owned by a company.
 
-Core attributes:
-
-- Customer ID.
-- Company ID.
-- Full name.
-- Email.
-- Phone.
-- Birthdate.
-- Customer status.
-- Preferred channel.
-- Source.
-- Tags.
-- Notes summary.
-- Created and updated timestamps.
-
-Responsibilities:
-
-- Central record for service history, CRM activity, marketing segmentation, appointments, and payments.
+- Stores name, email, phone, birthdate, lifecycle status, source, preferred channel, lead status, customer type, and summary notes.
+- Anchors appointments, CRM, marketing, automations, payments, and reports.
 
 #### `customer_addresses`
 
-Customer address records.
+Customer address book.
 
-Core attributes:
-
-- Address ID.
-- Company ID.
-- Customer ID.
-- Address type.
-- Address fields.
-- Default status.
+- Stores billing, service, and mailing addresses.
+- Supports companies that provide on-site services or require billing details.
 
 #### `customer_notes`
 
-Internal notes about a customer.
+Internal customer notes.
 
-Core attributes:
-
-- Note ID.
-- Company ID.
-- Customer ID.
-- Author company member ID.
-- Note body.
-- Visibility.
-- Created timestamp.
+- Stores author, note body, visibility, pinned state, and timestamps.
+- Supports staff collaboration and customer history.
 
 #### `customer_tags`
 
-Tenant-defined customer classification tags.
+Company-defined customer labels.
 
-Core attributes:
-
-- Tag ID.
-- Company ID.
-- Name.
-- Color.
+- Stores tag name, color, description, and status.
+- Used for segmentation, CRM, filtering, automations, and reports.
 
 #### `customer_tag_assignments`
 
-Join entity between customers and tags.
+Customer-to-tag join entity.
 
-Core attributes:
+- Connects customers to one or more company tags.
 
-- Customer ID.
-- Tag ID.
+#### `customer_consents`
 
-### 4. Services
+Customer consent record.
 
-#### `services`
+- Stores channel, purpose, consent status, capture source, capture timestamp, revocation timestamp, and proof metadata.
+- Required for compliant marketing and messaging.
 
-Services offered by a company.
-
-Core attributes:
-
-- Service ID.
-- Company ID.
-- Name.
-- Description.
-- Category ID.
-- Duration.
-- Base price.
-- Active status.
+### Services
 
 #### `service_categories`
 
-Groups of services.
+Company service grouping.
 
-Core attributes:
+- Stores category name, description, display order, and active status.
+- Organizes customer-facing service catalogs.
 
-- Category ID.
-- Company ID.
-- Name.
-- Display order.
-- Active status.
+#### `services`
+
+Service offered by a company.
+
+- Stores name, description, duration, base price, category, tax behavior, booking status, and active status.
+- Used by appointments, staff assignment, invoices, marketing, and reports.
 
 #### `service_staff_assignments`
 
-Join entity between services and company members who can perform them.
+Service eligibility by staff member.
 
-Core attributes:
+- Connects services to staff who can perform them.
+- Can include location, price override, duration override, and active status.
 
-- Service ID.
-- Company member ID.
-- Location ID.
-- Active status.
+#### `service_resources`
 
-### 5. Appointments
+Resources required to provide a service.
+
+- Stores rooms, equipment, seats, or other constrained resources.
+- Prevents overbooking shared resources.
+
+### Appointments
 
 #### `appointments`
 
-Scheduled service booking.
+Scheduled booking.
 
-Core attributes:
-
-- Appointment ID.
-- Company ID.
-- Customer ID.
-- Location ID.
-- Assigned company member ID.
-- Appointment status.
-- Start timestamp.
-- End timestamp.
-- Source.
-- Cancellation reason.
-- Created and updated timestamps.
-
-Responsibilities:
-
-- Central scheduling record.
-- Connects customers, services, staff, locations, payments, calendar sync, reminders, and reports.
+- Stores customer, company, location, assigned staff, status, source, start time, end time, cancellation reason, no-show status, and lifecycle timestamps.
+- Central record for scheduling, reminders, payments, reporting, and automations.
 
 #### `appointment_services`
 
-Join entity between appointments and one or more services.
+Services included in an appointment.
 
-Core attributes:
+- Connects appointments to one or more services.
+- Preserves price, duration, and service name at booking time.
 
-- Appointment ID.
-- Service ID.
-- Price at booking.
-- Duration at booking.
+#### `appointment_participants`
 
-#### `staff_availability`
+Additional appointment participants.
 
-Recurring or ad hoc staff availability.
+- Tracks extra staff, guests, or resources involved in an appointment.
+- Supports group services and multi-staff service delivery.
 
-Core attributes:
+#### `appointment_status_history`
 
-- Availability ID.
-- Company ID.
-- Company member ID.
-- Location ID.
-- Day or date rule.
-- Start time.
-- End time.
-- Active status.
+Appointment lifecycle audit.
 
-#### `appointment_blocks`
+- Stores status changes, actor, reason, and timestamps.
+- Supports operational traceability and reporting.
 
-Unavailable time blocks.
+#### `calendar_connections`
 
-Core attributes:
+External calendar account connection.
 
-- Block ID.
-- Company ID.
-- Company member ID.
-- Location ID.
-- Start timestamp.
-- End timestamp.
-- Reason.
+- Stores provider, connected account, owner, sync status, and last sync time.
+- Supports Google Calendar, Calendly, and future providers.
 
-#### `calendar_sync_connections`
+#### `calendar_event_mappings`
 
-External calendar connection configuration.
+Internal-to-external calendar mapping.
 
-Core attributes:
+- Connects an appointment to external calendar event IDs.
+- Tracks sync direction, sync state, and conflict state.
 
-- Connection ID.
-- Company ID.
-- Company member ID.
-- Provider.
-- External account ID.
-- Sync status.
-- Last synced timestamp.
-
-#### `calendar_sync_events`
-
-Mapping between internal appointments and external calendar events.
-
-Core attributes:
-
-- Sync event ID.
-- Company ID.
-- Appointment ID.
-- Connection ID.
-- External event ID.
-- Sync direction.
-- Sync status.
-
-### 6. CRM
+### CRM
 
 #### `crm_pipelines`
 
-Tenant-defined sales or relationship pipeline.
+Company-defined pipeline.
 
-Core attributes:
-
-- Pipeline ID.
-- Company ID.
-- Name.
-- Description.
-- Active status.
+- Stores pipeline name, description, module context, and active status.
+- Supports sales, lead nurturing, and customer lifecycle management.
 
 #### `crm_stages`
 
-Pipeline stages.
+Pipeline stage.
 
-Core attributes:
-
-- Stage ID.
-- Company ID.
-- Pipeline ID.
-- Name.
-- Display order.
-- Win status.
-- Lost status.
+- Stores stage name, order, probability, win status, lost status, and active status.
+- Defines progression inside a pipeline.
 
 #### `crm_deals`
 
-Sales or opportunity record.
+Opportunity or commercial relationship record.
 
-Core attributes:
-
-- Deal ID.
-- Company ID.
-- Customer ID.
-- Pipeline ID.
-- Stage ID.
-- Owner company member ID.
-- Title.
-- Value.
-- Deal status.
-- Expected close date.
-- Source.
+- Stores customer, pipeline, stage, owner, title, value, expected close date, status, source, and loss reason.
+- Connects customer acquisition, follow-up, and revenue forecasting.
 
 #### `crm_activities`
 
-Tracked CRM interactions.
+CRM task or interaction.
 
-Core attributes:
-
-- Activity ID.
-- Company ID.
-- Customer ID.
-- Deal ID.
-- Owner company member ID.
-- Activity type.
-- Subject.
-- Body.
-- Due timestamp.
-- Completed timestamp.
+- Stores customer, deal, owner, activity type, subject, body, due date, completion state, and outcome.
+- Tracks calls, messages, meetings, tasks, notes, and follow-ups.
 
 #### `crm_external_mappings`
 
-Mapping to external CRM providers such as HubSpot.
+External CRM mapping.
 
-Core attributes:
+- Connects internal CRM entities to HubSpot or future CRM provider object IDs.
+- Tracks sync status, sync direction, conflict state, and last sync time.
 
-- Mapping ID.
-- Company ID.
-- Provider.
-- Internal entity type.
-- Internal entity ID.
-- External object ID.
-- Sync status.
-- Last synced timestamp.
-
-### 7. Marketing
+### Marketing
 
 #### `marketing_audiences`
 
-Customer audience or segment.
+Audience or customer segment.
 
-Core attributes:
-
-- Audience ID.
-- Company ID.
-- Name.
-- Description.
-- Segment rules.
-- Active status.
+- Stores name, description, segment rules, status, and refresh behavior.
+- Used to target campaigns and automations.
 
 #### `marketing_campaigns`
 
 Campaign definition.
 
-Core attributes:
-
-- Campaign ID.
-- Company ID.
-- Audience ID.
-- Name.
-- Channel.
-- Campaign status.
-- Objective.
-- Start timestamp.
-- End timestamp.
+- Stores audience, channel, objective, status, schedule, owner, budget metadata, and performance metadata.
+- Supports WhatsApp, ManyChat, Meta Ads, email, SMS, and future channels.
 
 #### `marketing_messages`
 
 Campaign message content.
 
-Core attributes:
-
-- Message ID.
-- Company ID.
-- Campaign ID.
-- Channel.
-- Subject.
-- Body.
-- Template variables.
-- Approval status.
+- Stores channel, subject, body, template variables, approval status, and version.
+- Keeps message content separate from delivery events.
 
 #### `marketing_deliveries`
 
-Per-recipient delivery tracking.
+Per-recipient campaign delivery.
 
-Core attributes:
+- Stores customer, campaign, message, provider, delivery status, sent time, opened time, clicked time, failed time, and provider response metadata.
+- Supports attribution, compliance, and reporting.
 
-- Delivery ID.
-- Company ID.
-- Campaign ID.
-- Message ID.
-- Customer ID.
-- Provider.
-- Delivery status.
-- Sent timestamp.
-- Opened timestamp.
-- Clicked timestamp.
+#### `message_templates`
 
-#### `marketing_consents`
+Reusable message template.
 
-Customer consent by channel and purpose.
+- Stores template name, channel, body, variables, approval state, language, and provider template ID.
+- Used by marketing campaigns and automations.
 
-Core attributes:
-
-- Consent ID.
-- Company ID.
-- Customer ID.
-- Channel.
-- Purpose.
-- Consent status.
-- Captured timestamp.
-- Source.
-
-### 8. Automations
+### Automations
 
 #### `automation_workflows`
 
 Automation workflow definition.
 
-Core attributes:
+- Stores name, description, trigger type, status, version, owner, and publish state.
+- Represents a reusable business process.
 
-- Workflow ID.
-- Company ID.
-- Name.
-- Description.
-- Trigger type.
-- Workflow status.
-- Version.
-- Created by company member ID.
+#### `automation_triggers`
+
+Workflow trigger configuration.
+
+- Stores event type, filters, schedule rules, and trigger status.
+- Defines when a workflow should start.
 
 #### `automation_steps`
 
-Steps inside an automation workflow.
+Workflow step definition.
 
-Core attributes:
-
-- Step ID.
-- Company ID.
-- Workflow ID.
-- Step type.
-- Configuration.
-- Display order.
-
-#### `automation_runs`
-
-Execution instance of an automation workflow.
-
-Core attributes:
-
-- Run ID.
-- Company ID.
-- Workflow ID.
-- Trigger entity type.
-- Trigger entity ID.
-- Run status.
-- Started timestamp.
-- Finished timestamp.
-
-#### `automation_run_steps`
-
-Execution tracking for each workflow step.
-
-Core attributes:
-
-- Run step ID.
-- Company ID.
-- Run ID.
-- Step ID.
-- Step status.
-- Attempt count.
-- Error summary.
-- Started timestamp.
-- Finished timestamp.
+- Stores workflow, step type, configuration, order, branching rules, and retry behavior.
+- Defines actions such as send message, create CRM task, update deal, wait, or notify staff.
 
 #### `automation_events`
 
-Event stream used to trigger automations.
+System event stream.
 
-Core attributes:
+- Stores event type, company, related entity type, related entity ID, event payload summary, occurred time, and processing state.
+- Decouples transactional modules from automation execution.
 
-- Event ID.
-- Company ID.
-- Event type.
-- Entity type.
-- Entity ID.
-- Payload summary.
-- Occurred timestamp.
-- Processed status.
+#### `automation_runs`
 
-### 9. Payments
+Workflow execution instance.
+
+- Stores workflow, triggering event, status, start time, finish time, and error summary.
+- Provides operational observability.
+
+#### `automation_run_steps`
+
+Step-level execution record.
+
+- Stores automation run, step, status, attempt count, start time, finish time, and error summary.
+- Supports retry and debugging.
+
+### Payments
 
 #### `payment_customers`
 
-Payment-provider customer mapping.
+Payment provider customer mapping.
 
-Core attributes:
-
-- Payment customer ID.
-- Company ID.
-- Customer ID.
-- Provider.
-- External customer ID.
+- Connects an internal customer to a payment provider customer ID.
+- Stores provider, external customer ID, sync status, and metadata summary.
 
 #### `invoices`
 
 Customer invoice.
 
-Core attributes:
-
-- Invoice ID.
-- Company ID.
-- Customer ID.
-- Appointment ID.
-- Invoice number.
-- Invoice status.
-- Subtotal.
-- Discount total.
-- Tax total.
-- Total.
-- Due date.
-- Issued timestamp.
+- Stores customer, appointment, invoice number, status, subtotal, discount total, tax total, total, currency, due date, issued time, and paid time.
+- Represents the billable business document.
 
 #### `invoice_items`
 
 Invoice line item.
 
-Core attributes:
-
-- Invoice item ID.
-- Company ID.
-- Invoice ID.
-- Service ID.
-- Description.
-- Quantity.
-- Unit price.
-- Total.
+- Stores invoice, service, description, quantity, unit price, discount, tax, and total.
+- Preserves billing details at the time of invoice creation.
 
 #### `payments`
 
 Payment transaction.
 
-Core attributes:
-
-- Payment ID.
-- Company ID.
-- Customer ID.
-- Invoice ID.
-- Provider.
-- Payment method.
-- Payment status.
-- Amount.
-- Currency.
-- Paid timestamp.
-- External payment ID.
+- Stores invoice, customer, provider, method, status, amount, currency, paid time, external payment ID, and failure reason.
+- Tracks money movement without storing raw card data.
 
 #### `refunds`
 
-Refund transaction.
+Payment refund.
 
-Core attributes:
-
-- Refund ID.
-- Company ID.
-- Payment ID.
-- Amount.
-- Reason.
-- Refund status.
-- External refund ID.
-- Created timestamp.
+- Stores payment, amount, reason, status, external refund ID, requester, and timestamps.
+- Supports financial auditability.
 
 #### `subscriptions`
 
-Recurring customer subscription or service package.
+Recurring customer billing relationship.
 
-Core attributes:
+- Stores customer, plan, status, billing interval, amount, currency, start date, end date, renewal date, and external subscription ID.
+- Supports packages, memberships, and recurring services.
 
-- Subscription ID.
-- Company ID.
-- Customer ID.
-- Plan name.
-- Subscription status.
-- Billing interval.
-- Amount.
-- Start date.
-- End date.
-- External subscription ID.
-
-### 10. Reports and Analytics
+### Reports
 
 #### `report_definitions`
 
 Saved report configuration.
 
-Core attributes:
-
-- Report definition ID.
-- Company ID.
-- Name.
-- Module.
-- Metrics.
-- Filters.
-- Visibility.
+- Stores name, module, metrics, filters, visibility, owner, and schedule.
+- Defines reusable operational and executive reports.
 
 #### `report_snapshots`
 
-Materialized report output for repeatable analytics.
+Generated report output.
 
-Core attributes:
-
-- Snapshot ID.
-- Company ID.
-- Report definition ID.
-- Period start.
-- Period end.
-- Snapshot data summary.
-- Generated timestamp.
+- Stores report definition, reporting period, snapshot summary, generated time, and generation status.
+- Provides repeatable historical reporting.
 
 #### `metric_daily_rollups`
 
-Aggregated daily metrics.
+Daily aggregated metrics.
 
-Core attributes:
-
-- Rollup ID.
-- Company ID.
-- Metric date.
-- Metric key.
-- Dimension key.
-- Dimension value.
-- Metric value.
+- Stores metric date, metric key, dimension key, dimension value, and metric value.
+- Supports scalable dashboards without overloading transactional records.
 
 #### `audit_logs`
 
-Security and business audit trail.
+System and business audit trail.
 
-Core attributes:
+- Stores actor, company, action, entity type, entity ID, metadata summary, IP context, user agent context, and timestamp.
+- Records sensitive changes and privileged activity.
 
-- Audit log ID.
-- Company ID.
-- Actor user profile ID.
-- Actor company member ID.
-- Action.
-- Entity type.
-- Entity ID.
-- Metadata summary.
-- Created timestamp.
-
-### 11. Integrations
+### Integrations
 
 #### `integration_connections`
 
-Tenant-level external integration configuration.
+Company integration connection.
 
-Core attributes:
-
-- Connection ID.
-- Company ID.
-- Provider.
-- Connection status.
-- Connected by company member ID.
-- External account ID.
-- Last health check timestamp.
-
-Examples:
-
-- HubSpot.
-- ManyChat.
-- WhatsApp.
-- Google Calendar.
-- Calendly.
-- Meta Ads.
-- Payment provider.
+- Stores provider, connection status, connected account, owner, health status, and last health check.
+- Represents tenant-owned connections to HubSpot, ManyChat, WhatsApp, Google Calendar, Calendly, Meta Ads, and payment providers.
 
 #### `integration_sync_jobs`
 
-Background sync job tracking.
+Integration sync execution.
 
-Core attributes:
-
-- Sync job ID.
-- Company ID.
-- Connection ID.
-- Job type.
-- Job status.
-- Started timestamp.
-- Finished timestamp.
-- Error summary.
+- Stores connection, job type, status, start time, finish time, processed count, failed count, and error summary.
+- Tracks background synchronization work.
 
 #### `webhook_events`
 
-Inbound webhook event log.
+Inbound webhook event ledger.
 
-Core attributes:
+- Stores provider, event type, external event ID, receipt time, processing status, related entity, and deduplication state.
+- Supports reliable external event processing.
 
-- Webhook event ID.
-- Company ID.
-- Provider.
-- Event type.
-- External event ID.
-- Processing status.
-- Received timestamp.
-- Processed timestamp.
+## 2. Relationships
 
-## Relationships
+### Tenant and Identity
 
-### Tenant and Identity Relationships
+- One `company` has many `company_members`.
+- One `user_profile` can belong to many `companies` through `company_members`.
+- One `company_member` belongs to one `company` and one `user_profile`.
+- One `company_member` has one active `role` per company context.
+- One `role` has many `permissions` through `role_permissions`.
+- One `company` has one `company_settings` record.
+- One `company` has one `company_branding` record.
+- One `company` has many `company_locations`.
+- One `company` has many `company_invitations`.
 
-- One company has many company members.
-- One user profile can belong to many companies through company members.
-- One company member has one role within a company.
-- One role has many permissions through role permissions.
-- One company has one company settings record.
-- One company has one company branding record.
-- One company has many locations.
+### Users and Staff
 
-### Customer Relationships
+- One `company_member` may have one `staff_profile`.
+- One `staff_profile` has many `staff_working_hours`.
+- One `staff_profile` has many `staff_time_off` records.
+- One `staff_profile` can be assigned to many `services`.
+- One `staff_profile` can own many `appointments`, `crm_deals`, `crm_activities`, campaigns, workflows, and reports.
 
-- One company has many customers.
-- One customer has many addresses.
-- One customer has many notes.
-- One customer has many tag assignments.
-- One company has many customer tags.
-- One customer can have many appointments, CRM deals, marketing deliveries, invoices, payments, and subscriptions.
+### Customers
 
-### Service and Scheduling Relationships
+- One `company` has many `customers`.
+- One `customer` belongs to exactly one `company`.
+- One `customer` has many `customer_addresses`.
+- One `customer` has many `customer_notes`.
+- One `customer` has many `customer_consents`.
+- One `customer` has many `customer_tags` through `customer_tag_assignments`.
+- One `customer` can have many `appointments`, `crm_deals`, `marketing_deliveries`, `invoices`, `payments`, and `subscriptions`.
 
-- One company has many service categories.
-- One service category has many services.
-- One company has many services.
-- One service can be assigned to many staff members through service staff assignments.
-- One appointment belongs to one company, one customer, and optionally one location and assigned staff member.
-- One appointment can contain many services through appointment services.
-- One company member has many availability records and appointment blocks.
-- One appointment can map to many external calendar sync events.
+### Services and Appointments
 
-### CRM Relationships
+- One `company` has many `service_categories`.
+- One `service_category` has many `services`.
+- One `service` belongs to one `company`.
+- One `service` can require many `service_resources`.
+- One `service` can be performed by many staff members through `service_staff_assignments`.
+- One `appointment` belongs to one `company`, one `customer`, and optionally one `company_location`.
+- One `appointment` has one primary assigned staff member and may have many additional participants.
+- One `appointment` contains one or more `services` through `appointment_services`.
+- One `appointment` has many `appointment_status_history` records.
+- One `appointment` can map to many external calendar events through `calendar_event_mappings`.
 
-- One company has many CRM pipelines.
-- One pipeline has many stages.
-- One customer can have many deals.
-- One deal belongs to one pipeline and one stage.
-- One deal can have many CRM activities.
-- One CRM entity can have external mappings to HubSpot or future CRM providers.
+### CRM
 
-### Marketing Relationships
+- One `company` has many `crm_pipelines`.
+- One `crm_pipeline` has many `crm_stages`.
+- One `customer` has many `crm_deals`.
+- One `crm_deal` belongs to one `crm_pipeline` and one current `crm_stage`.
+- One `crm_deal` has many `crm_activities`.
+- One `crm_activity` can relate to a customer, deal, appointment, or campaign.
+- One internal CRM entity can have many `crm_external_mappings` for external providers.
 
-- One company has many marketing audiences.
-- One audience can be used by many campaigns.
-- One campaign has many messages.
-- One campaign has many deliveries.
-- One delivery targets one customer.
-- One customer has many marketing consent records.
+### Marketing
 
-### Automation Relationships
+- One `company` has many `marketing_audiences`.
+- One `marketing_audience` can be used by many `marketing_campaigns`.
+- One `marketing_campaign` has many `marketing_messages`.
+- One `marketing_campaign` has many `marketing_deliveries`.
+- One `marketing_delivery` targets one `customer`.
+- One `marketing_delivery` references the consent state required for the channel and purpose.
+- One `message_template` can be reused by many campaigns and automation steps.
 
-- One company has many automation workflows.
-- One workflow has many automation steps.
-- One workflow has many automation runs.
-- One automation run has many automation run steps.
-- One automation event can trigger one or more workflow runs.
-- Automation events may reference customers, appointments, CRM deals, payments, marketing deliveries, or integration events.
+### Automations
 
-### Payment Relationships
+- One `company` has many `automation_workflows`.
+- One `automation_workflow` has one or more `automation_triggers`.
+- One `automation_workflow` has many `automation_steps`.
+- One `automation_event` can start one or more `automation_runs`.
+- One `automation_run` belongs to one workflow and one triggering event.
+- One `automation_run` has many `automation_run_steps`.
+- Automation events can reference customers, appointments, CRM deals, marketing deliveries, payments, webhook events, and integration sync jobs.
 
-- One company has many invoices.
-- One customer has many invoices.
-- One appointment can have one or many invoices depending on billing model.
-- One invoice has many invoice items.
-- One invoice can have many payments.
-- One payment can have many refunds.
-- One customer can have many subscriptions.
-- One payment customer maps an internal customer to an external payment provider.
+### Payments
 
-### Reporting Relationships
+- One `customer` can have many `payment_customers` across providers.
+- One `customer` has many `invoices`.
+- One `appointment` can have one or more `invoices`.
+- One `invoice` has many `invoice_items`.
+- One `invoice_item` can reference a `service`.
+- One `invoice` can have many `payments`.
+- One `payment` can have many `refunds`.
+- One `customer` can have many `subscriptions`.
+- One `subscription` can generate many invoices over time.
 
-- One company has many report definitions.
-- One report definition has many report snapshots.
-- One company has many metric rollups.
-- Audit logs may reference any major entity by entity type and entity ID.
+### Reports and Audit
 
-### Integration Relationships
+- One `company` has many `report_definitions`.
+- One `report_definition` has many `report_snapshots`.
+- One `company` has many `metric_daily_rollups`.
+- One `audit_log` belongs to one company and may reference any major entity.
+- Report rollups are derived from transactional modules but should not replace transactional source records.
 
-- One company has many integration connections.
-- One integration connection has many sync jobs.
-- One integration connection can create external mappings for CRM, calendar, marketing, messaging, and payment records.
-- One webhook event may create automation events, CRM activities, marketing delivery updates, payment updates, or calendar sync updates.
+### Integrations
 
-## Module Responsibilities
+- One `company` has many `integration_connections`.
+- One `integration_connection` has many `integration_sync_jobs`.
+- One `integration_connection` can produce many provider mappings across CRM, calendar, marketing, messaging, and payment records.
+- One `webhook_event` belongs to one provider and one company context after validation.
+- One `webhook_event` can create automation events, CRM activities, payment updates, marketing delivery updates, or calendar sync updates.
+
+## 3. Module Responsibilities
 
 ### Authentication
 
-Responsibilities:
-
-- Manage user authentication through Supabase Auth.
-- Maintain application-level user profiles.
-- Support invitation and membership lifecycle.
-- Enforce role-based permissions.
-- Provide secure company context switching for multi-company users.
+- Use Supabase Auth as the source of truth for authentication identity and sessions.
+- Maintain application profiles outside `auth.users`.
+- Support secure sign-up, sign-in, sign-out, password reset, MFA readiness, and session audit.
+- Enforce authenticated access before tenant authorization is evaluated.
 
 Primary entities:
 
 - `auth.users`
 - `user_profiles`
-- `company_members`
-- `roles`
-- `permissions`
-- `role_permissions`
+- `user_sessions_audit`
 
 ### Companies
 
-Responsibilities:
-
-- Define tenant boundaries.
-- Store company identity, settings, branding, locations, and membership.
-- Provide white-label configuration.
-- Own all company-scoped operational data.
+- Define the tenant boundary for all business data.
+- Store company identity, settings, branding, locations, and invitations.
+- Support white-label configuration.
+- Provide the company context used by authorization and Row Level Security.
 
 Primary entities:
 
@@ -976,29 +580,32 @@ Primary entities:
 - `company_settings`
 - `company_branding`
 - `company_locations`
-- `company_members`
+- `company_invitations`
 
 ### Users
 
-Responsibilities:
-
-- Store application user profiles separate from authentication records.
-- Support users who belong to one or more companies.
-- Track profile preferences such as timezone, locale, and status.
+- Manage company membership, roles, staff profiles, and staff availability.
+- Support users who belong to multiple companies.
+- Separate global user identity from tenant-specific membership.
+- Provide staff data needed by services, scheduling, CRM, automations, and reports.
 
 Primary entities:
 
 - `user_profiles`
 - `company_members`
 - `roles`
+- `permissions`
+- `role_permissions`
+- `staff_profiles`
+- `staff_working_hours`
+- `staff_time_off`
 
 ### Customers
 
-Responsibilities:
-
-- Maintain the tenant-owned customer record.
-- Centralize customer profile, contact details, addresses, notes, tags, and consent.
-- Serve as the anchor for appointments, CRM, marketing, payments, and reports.
+- Maintain the company-owned customer record.
+- Store contact information, addresses, notes, tags, and consent.
+- Act as the operational anchor for appointments, CRM, marketing, payments, automations, and reports.
+- Preserve customer data isolation between companies.
 
 Primary entities:
 
@@ -1007,46 +614,43 @@ Primary entities:
 - `customer_notes`
 - `customer_tags`
 - `customer_tag_assignments`
-- `marketing_consents`
+- `customer_consents`
 
 ### Services
 
-Responsibilities:
-
-- Define company service catalog.
-- Manage service categories, pricing, duration, and staff eligibility.
-- Provide service data for appointments, invoices, reporting, and marketing.
+- Maintain the company service catalog.
+- Model categories, pricing, duration, resources, and staff eligibility.
+- Provide stable service references for appointments, invoices, reports, and campaigns.
 
 Primary entities:
 
-- `services`
 - `service_categories`
+- `services`
 - `service_staff_assignments`
+- `service_resources`
 
 ### Appointments
 
-Responsibilities:
-
-- Manage scheduling lifecycle from booking to completion or cancellation.
-- Link customers, staff, services, locations, calendar integrations, reminders, and billing.
-- Provide operational metrics for utilization, revenue, and attendance.
+- Manage booking lifecycle from creation to completion, cancellation, or no-show.
+- Link customer, staff, location, services, calendar sync, reminders, payments, and reports.
+- Preserve appointment status history for audit and analytics.
+- Prevent scheduling conflicts for staff, locations, services, and resources.
 
 Primary entities:
 
 - `appointments`
 - `appointment_services`
-- `staff_availability`
-- `appointment_blocks`
-- `calendar_sync_connections`
-- `calendar_sync_events`
+- `appointment_participants`
+- `appointment_status_history`
+- `calendar_connections`
+- `calendar_event_mappings`
 
 ### CRM
 
-Responsibilities:
-
-- Manage pipelines, stages, deals, and sales or relationship activities.
-- Track customer progression from lead to retained customer.
-- Synchronize selected records with HubSpot while preserving internal ownership.
+- Manage sales and relationship pipelines.
+- Track stages, deals, tasks, interactions, ownership, and outcomes.
+- Integrate with HubSpot without making provider-specific fields part of the core model.
+- Feed reports and automations from customer lifecycle changes.
 
 Primary entities:
 
@@ -1058,11 +662,10 @@ Primary entities:
 
 ### Marketing
 
-Responsibilities:
-
-- Manage audiences, campaigns, message content, and delivery outcomes.
-- Respect customer consent by channel and purpose.
-- Integrate with ManyChat, WhatsApp, Meta Ads, and future marketing providers.
+- Manage audiences, campaigns, message templates, campaign messages, and delivery status.
+- Enforce customer consent by channel and purpose.
+- Support WhatsApp, ManyChat, Meta Ads, email, SMS, and future channels.
+- Provide performance data for reports and automation triggers.
 
 Primary entities:
 
@@ -1070,19 +673,20 @@ Primary entities:
 - `marketing_campaigns`
 - `marketing_messages`
 - `marketing_deliveries`
-- `marketing_consents`
+- `message_templates`
+- `customer_consents`
 
 ### Automations
 
-Responsibilities:
-
-- Define workflow triggers, steps, versions, and execution history.
-- React to system events such as new customer, appointment booked, payment received, CRM stage changed, or message delivered.
-- Provide reliable retry, observability, and audit history for automated actions.
+- Define event-driven and scheduled workflows.
+- Decouple business events from workflow execution.
+- Track workflow versions, runs, steps, retries, failures, and outcomes.
+- Trigger actions across CRM, marketing, appointments, payments, and notifications.
 
 Primary entities:
 
 - `automation_workflows`
+- `automation_triggers`
 - `automation_steps`
 - `automation_events`
 - `automation_runs`
@@ -1090,11 +694,10 @@ Primary entities:
 
 ### Payments
 
-Responsibilities:
-
-- Track invoices, line items, payments, refunds, subscriptions, and provider mappings.
-- Link revenue to customers, appointments, services, and reports.
-- Preserve external payment provider IDs without making providers the canonical business record.
+- Manage invoices, invoice items, payments, refunds, provider customer mappings, and subscriptions.
+- Link revenue to customers, appointments, services, staff, and reports.
+- Store provider references without storing raw card or banking data.
+- Support financial auditability and reconciliation.
 
 Primary entities:
 
@@ -1107,11 +710,10 @@ Primary entities:
 
 ### Reports
 
-Responsibilities:
-
-- Provide saved reports, snapshots, metric rollups, and audit visibility.
-- Support dashboards for revenue, appointments, customer growth, marketing performance, CRM conversion, and team utilization.
-- Separate analytical aggregates from transactional tables for scalability.
+- Provide saved report definitions, generated report snapshots, daily rollups, and audit logs.
+- Support dashboards for revenue, appointments, customers, CRM conversion, marketing performance, staff utilization, and automation health.
+- Keep analytical aggregates separate from transactional records.
+- Preserve historical reporting consistency.
 
 Primary entities:
 
@@ -1120,29 +722,97 @@ Primary entities:
 - `metric_daily_rollups`
 - `audit_logs`
 
-## Security and Data Isolation Requirements
+## 4. Multi-Tenant Strategy
 
-- Every tenant-owned table must include or derive company ownership.
-- Row Level Security should enforce company-scoped access.
-- Platform administrator access should be explicitly modeled and audited.
-- Sensitive integration credentials should not be stored in plain application tables.
-- Webhook events should be validated, deduplicated, and traceable.
-- Payment data should store provider references and business transaction metadata, not raw card data.
-- Audit logs should capture privileged actions, permission changes, payment changes, integration changes, and automation state changes.
+### Tenant Boundary
 
-## Source of Truth Guidelines
+- `companies` is the tenant root.
+- Every tenant-owned entity must include `company_id` directly or derive company ownership through a required parent entity.
+- Cross-company records should not exist in operational modules.
+- Platform-wide records must be explicitly separated from tenant-owned records.
 
-- Casa Di Amo OS should be the source of truth for companies, users, customers, services, appointments, internal CRM state, internal marketing state, automations, payments, and reports.
-- Supabase Auth should be the source of truth for authentication identity and sessions.
-- External providers should be treated as integration systems unless a documented module decision assigns source-of-truth ownership differently.
-- Integration mapping tables should preserve external IDs and sync state without leaking provider-specific structure into core business tables.
+### User Access Model
 
-## Open Architecture Decisions
+- A single `user_profile` can access multiple companies.
+- Company access is granted only through `company_members`.
+- Effective permissions are calculated from the active company context, membership status, role, and role permissions.
+- Users must select or be assigned an active company context before accessing tenant data.
 
-- Confirm whether customers can belong to multiple companies or must be duplicated per company.
-- Confirm whether staff members are always authenticated users or whether non-login staff records are required.
-- Select the payment provider and subscription billing model.
-- Define the white-label domain strategy.
-- Define the exact role and permission matrix.
-- Define retention policies for webhook events, automation runs, delivery events, and audit logs.
-- Decide which analytics should be real-time and which should use scheduled rollups.
+### Data Ownership
+
+- Casa Di Amo OS is the source of truth for companies, users, customers, services, appointments, internal CRM, internal marketing, automations, payments, and reports.
+- Supabase Auth is the source of truth for authentication identity and sessions.
+- External systems are integration providers unless a specific integration decision declares otherwise.
+- External IDs must be stored in mapping entities, not embedded as core identifiers.
+
+### Row Level Security
+
+- Row Level Security must be enabled for tenant-owned tables.
+- Policies must restrict access to records whose `company_id` matches an active company membership for the authenticated user.
+- Permission-sensitive actions must check both tenant membership and module permissions.
+- Service-role access must be reserved for trusted backend jobs, integration workers, migrations, and administrative operations.
+
+### Tenant Lifecycle
+
+- Company creation must initialize settings, branding defaults, default roles, default permissions, and default service/report configuration.
+- Company suspension must prevent operational access while preserving records.
+- Company deletion should use a controlled retention and deletion workflow instead of immediate destructive removal.
+- Tenant exports, retention, and deletion must be auditable.
+
+### Scalability
+
+- High-volume records such as automation events, webhook events, marketing deliveries, audit logs, and metric rollups should be designed for partitioning or archival.
+- Transactional tables should stay normalized.
+- Reporting should use rollups and snapshots to avoid heavy dashboard queries against operational tables.
+- Integration sync jobs should be idempotent and resumable.
+
+## 5. Security Considerations
+
+### Authentication Security
+
+- Supabase Auth should manage credentials, sessions, password resets, OAuth, and MFA readiness.
+- Application tables should never store passwords or authentication secrets.
+- Security-sensitive authentication events should be captured in `user_sessions_audit`.
+- Inactive, suspended, or removed company memberships must immediately lose tenant access.
+
+### Authorization Security
+
+- Authorization must evaluate authentication, active company membership, role, permission, and record ownership.
+- Privileged roles such as owner, admin, finance, and platform admin must be explicitly modeled.
+- Permission changes must be written to `audit_logs`.
+- Platform administrator access must be separate from company user access and heavily audited.
+
+### Data Isolation
+
+- Tenant isolation must be enforced in the database with Row Level Security.
+- Application filters alone are insufficient for multi-tenant security.
+- No operational query should depend on user-supplied company IDs without membership validation.
+- Shared lookup data must be clearly separated from tenant-owned data.
+
+### Integration Security
+
+- Integration credentials must be stored in a secure secrets mechanism, not plain business tables.
+- Webhooks must be signature-validated, deduplicated, and recorded before processing.
+- Provider payloads should be minimized in operational tables.
+- Sync jobs must be idempotent to avoid duplicate customers, payments, appointments, or messages.
+
+### Payment Security
+
+- Raw card, bank, or payment credential data must never be stored.
+- Payment records should store business amounts, statuses, provider references, and reconciliation metadata only.
+- Refunds and payment status changes must be audited.
+- Finance permissions must be separate from general staff permissions.
+
+### Privacy and Compliance
+
+- Customer consent must be recorded before marketing messages are sent.
+- Consent revocation must prevent future marketing delivery for that channel and purpose.
+- Customer notes and sensitive customer metadata should support restricted visibility where needed.
+- Data retention policies must cover customers, audit logs, webhook events, marketing deliveries, automation runs, and report snapshots.
+
+### Auditability
+
+- `audit_logs` must capture privileged actions, permission changes, company settings changes, payment changes, integration changes, automation publication, and destructive operations.
+- Audit records should include actor, company, action, entity reference, timestamp, and request context.
+- Audit logs should be append-only from the application perspective.
+- Reporting should distinguish operational activity from security audit history.
