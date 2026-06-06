@@ -1,1 +1,91 @@
+# AI Context
 
+## Purpose
+
+This folder contains the official source of truth for the Casa Di Amo OS project.
+
+All AI assistants, developers, and automation systems must consult these documents before proposing architecture, code, database changes, workflows, or product decisions.
+
+## Project Overview
+
+Casa Di Amo OS is a multi-tenant SaaS platform designed for service-based businesses.
+
+The platform centralizes:
+
+- Customer Management
+- CRM
+- Scheduling
+- Marketing
+- Automations
+- Analytics
+- Team Management
+
+## AI Instructions
+
+When analyzing this repository:
+
+1. Always read all files inside this folder first.
+2. Treat these documents as the official project context.
+3. Do not create assumptions that contradict these documents.
+4. Prioritize scalability, maintainability, and security.
+5. Always consider multi-tenant architecture.
+6. Never generate implementation code before understanding the business requirements.
+7. Keep documentation synchronized with architectural decisions.
+
+## Project Documents
+
+### vision.md
+
+Defines the business vision, objectives, audience, and long-term strategy.
+
+### tech-stack.md
+
+Defines the official technologies and integrations used in the platform.
+
+### architecture.md
+
+Defines the system architecture, principles, and technical requirements.
+
+## Development Principles
+
+- Multi-Tenant First
+- Security First
+- API First
+- Documentation First
+- Scalable by Design
+- AI-Assisted Development
+
+## Current Phase
+
+Planning & Architecture
+
+No production implementation should be considered final without documentation approval.
+
+## Repository Structure
+
+/ai-context
+/docs
+/database
+/frontend
+/backend
+/api
+/prompts
+/automations
+/design
+
+## Future Integrations
+
+- Supabase
+- HubSpot
+- ManyChat
+- WhatsApp
+- Google Calendar
+- Calendly
+- Meta Ads
+- Claude
+- Cursor
+- Lovable
+
+## Source of Truth
+
+If there is a conflict between generated code and these documents, these documents take precedence.
