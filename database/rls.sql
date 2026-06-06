@@ -1707,6 +1707,12 @@ create policy "tenant_update" on public.ai_feedback for update to authenticated 
 drop policy if exists "tenant_delete" on public.ai_feedback;
 create policy "tenant_delete" on public.ai_feedback for delete to authenticated using ((app_private.is_platform_admin() or app_private.can_company_operate(company_id, 'ai', 'delete')));
 
+-- Audit/history tables are append-only from tenant clients: authenticated users get read policies only.
+revoke insert, update, delete on public.audit_logs from authenticated;
+revoke insert, update, delete on public.consent_audit_logs from authenticated;
+revoke insert, update, delete on public.user_sessions_audit from authenticated;
+revoke insert, update, delete on public.platform_admin_audit_logs from authenticated;
+
 -- Secret-bearing and worker-private tables intentionally have no authenticated policies.
 -- public.api_keys: service_role only; use audited Edge Functions for all access.
 -- public.dead_letter_events: service_role only; use audited Edge Functions for all access.
