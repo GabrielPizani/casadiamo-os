@@ -1,1 +1,37 @@
+# Tech Stack
 
+Frontend:
+- Lovable
+- React
+- TypeScript
+
+Backend:
+- Supabase
+- PostgreSQL
+
+Autenticação:
+- Supabase Auth
+
+Banco de Dados:
+- PostgreSQL
+
+Versionamento:
+- GitHub
+
+CRM Externo:
+- HubSpot
+
+Mensageria:
+- ManyChat
+- WhatsApp
+
+Calendário:
+- Google Calendar
+- Calendly
+
+IA:
+- Claude
+- Cursor
+
+Hospedagem:
+- Vercel
