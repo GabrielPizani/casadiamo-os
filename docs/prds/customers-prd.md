@@ -8,11 +8,26 @@ Customers.
 
 V1 for Amo Beauty Lab as the first tenant of Casa Di Amo OS.
 
+## MVP Launch Scope
+
+- Customer list.
+- Customer creation.
+- Customer detail page.
+- Customer edit flow.
+- Search by name, email, and phone.
+- Internal notes.
+- Simple tags.
+- Appointment history from the customer profile.
+
+## Product Validation
+
+Customers is successful when front desk and staff can create or find a customer in under one minute and use the profile as the starting point for appointments.
+
 ## Business Objective
 
 Create a reliable customer record that Amo Beauty Lab can use as the source of truth for client identity, contact details, visit context, notes, tags, and appointment history.
 
-The MVP must help staff find and update customers quickly while enforcing tenant isolation, role permissions, and privacy controls.
+The MVP must help staff find and update customers quickly while enforcing tenant isolation and role permissions.
 
 ## User Personas
 
@@ -26,10 +41,9 @@ The MVP must help staff find and update customers quickly while enforcing tenant
 - As a front desk user, I want to create a customer quickly so I can book or manage a visit.
 - As a staff user, I want to search customers by name, phone, or email so I can avoid duplicate records.
 - As a Manager, I want to edit customer details so operational information stays current.
-- As a staff user, I want to view a customer profile with contact details, notes, tags, and appointments so I understand the customer before service.
+- As a staff user, I want to view a customer profile with contact details, notes, tags, and appointments so I understand the customer before a visit.
 - As a staff user, I want to add internal notes so the team can share service-relevant context.
-- As a Manager, I want to pin important notes so critical context is visible.
-- As a Manager, I want to tag customers so staff can identify VIPs, preferences, or special handling needs.
+- As a Manager, I want to tag customers so staff can identify VIPs, preferences, and special handling needs.
 - As a Company Owner, I want inactive customers archived instead of casually deleted so records remain traceable.
 - As a Viewer, I want read-only customer access so I can review information without risk of accidental edits.
 
@@ -41,14 +55,14 @@ The MVP must help staff find and update customers quickly while enforcing tenant
 - Customer create and update forms validate email format, phone format, and required fields.
 - Customer list supports search by name, email, and phone within the active company.
 - Customer list supports filtering by status and tag.
-- Customer detail page shows contact details, lifecycle status, source, preferred channel, notes, tags, addresses, and related appointments.
+- Customer detail page shows contact details, status, source, notes, tags, addresses, and related appointments.
 - Staff can add notes when their role allows customer update or assigned customer update.
-- Note visibility rules are respected so restricted notes are hidden from roles without permission.
+- Notes are internal to Amo Beauty Lab staff and are never shown to customers in V1.
 - Tags are company-scoped and cannot be shared across tenants.
 - Archiving a customer changes status without hard deletion.
 - Duplicate detection warns when a matching email or phone already exists in the active company.
 - Customer data never crosses company boundaries in list, search, detail, or counts.
-- Sensitive customer updates are written to `audit_logs` when required by policy.
+- Customer hard deletion is not part of V1.
 
 ## Navigation
 
@@ -62,12 +76,10 @@ The MVP must help staff find and update customers quickly while enforcing tenant
   - Notes
   - Tags
   - Appointments
-  - Contact Preferences
 - Contextual actions:
   - create customer
   - edit customer
   - add note
-  - pin note
   - assign tag
   - archive customer
   - create appointment from customer profile
@@ -79,53 +91,43 @@ The MVP must help staff find and update customers quickly while enforcing tenant
 - `customer_notes`
 - `customer_tags`
 - `customer_tag_assignments`
-- `customer_consents`
 - `appointments`
 - `appointment_services`
 - `company_members`
 - `roles`
 - `permissions`
 - `role_permissions`
-- `audit_logs`
 
 ## API Requirements
 
 - Provide customer list API with tenant-scoped search, pagination, status filter, and tag filter.
-- Provide customer detail API returning customer profile, notes, tags, addresses, contact preferences, and related appointment summary.
+- Provide customer detail API returning customer profile, notes, tags, addresses, and related appointment summary.
 - Provide create customer API with duplicate warning by normalized email or phone within the active company.
 - Provide update customer API with field-level validation and permission enforcement.
 - Provide archive customer API that uses status changes rather than hard deletion.
 - Provide customer notes APIs:
   - create note
-  - update own note where allowed
-  - pin or unpin note where allowed
-  - list notes with visibility filtering
+  - update note where allowed
+  - list notes
 - Provide customer tags APIs:
   - list company tags
   - create company tag where allowed
   - assign tag to customer
   - remove tag from customer
-- Provide customer contact preference APIs for channel and purpose consent status.
 - All APIs must validate active company membership and customer module permissions.
 - All APIs must apply tenant-safe filters and never trust a client-supplied company id without membership validation.
 
 ## Edge Function Requirements
 
+Most customer reads and simple writes should use Supabase queries with RLS. Use Edge Functions only where a server-side transaction or normalization step improves reliability.
+
 - `customer-write`
   - performs create, update, and archive operations that require additional validation
   - checks tenant membership, role permission, and customer company ownership
   - normalizes email and phone fields before write
-  - records sensitive changes in `audit_logs`
 - `customer-duplicate-check`
   - checks possible duplicate customers inside one company only
   - returns warning candidates without exposing inaccessible records
-- `customer-note-write`
-  - validates note author membership
-  - applies note visibility rules
-  - records privileged note actions where required
-- `customer-contact-preference-write`
-  - records communication preference changes with capture source and timestamp
-  - preserves revocation history where supported by the schema
 
 ## Future Roadmap
 
@@ -135,4 +137,4 @@ The MVP must help staff find and update customers quickly while enforcing tenant
 - Customer export for authorized roles.
 - Rich service preference profile.
 - File attachments for customer documents and images.
-- Privacy request workflows for access, correction, and deletion handling.
+- Customer-facing intake form.

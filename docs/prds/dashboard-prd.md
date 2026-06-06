@@ -8,11 +8,24 @@ Dashboard.
 
 V1 for Amo Beauty Lab as the first tenant of Casa Di Amo OS.
 
+## MVP Launch Scope
+
+- Today summary.
+- Upcoming appointments.
+- Appointment status counts.
+- Staff workload for the selected day.
+- Recent customer activity.
+- Quick actions for creating customers and appointments.
+
+## Product Validation
+
+Dashboard is successful when the Owner or Manager can understand today's operations in under 30 seconds and take the next action without searching through multiple pages.
+
 ## Business Objective
 
 Give Amo Beauty Lab a fast operational overview of today's business activity, upcoming appointments, customer activity, staff workload, and data that needs attention.
 
-The MVP dashboard must help owners and managers understand daily operations without requiring them to open every module.
+The MVP dashboard must help owners and managers run the day without requiring complex reporting infrastructure.
 
 ## User Personas
 
@@ -28,7 +41,7 @@ The MVP dashboard must help owners and managers understand daily operations with
 - As a Manager, I want to see appointment status counts so I can identify schedule issues.
 - As an Employee, I want to see my assigned appointments so I can start work quickly.
 - As a Manager, I want to see recently created customers so I can monitor intake quality.
-- As a Company Owner, I want to see staff workload by day so I can understand capacity.
+- As a Company Owner, I want to see staff workload for today so I can understand capacity.
 - As a Viewer, I want dashboard cards to respect read-only permissions.
 - As any user, I want dashboard data to match the active company so tenant data never mixes.
 
@@ -39,14 +52,14 @@ The MVP dashboard must help owners and managers understand daily operations with
 - Users without appointment read permission cannot see appointment cards.
 - Users without customer read permission cannot see customer cards.
 - Dashboard defaults to Amo Beauty Lab when it is the user's only active company.
-- Dashboard supports a date selector for today, tomorrow, and custom single-day view.
+- Dashboard defaults to today and supports a simple date picker.
 - Appointment summary shows total appointments, scheduled, confirmed, completed, cancelled, and no-show counts for the selected day.
 - Upcoming appointments card shows the next appointments with time, customer, service summary, staff, location, and status.
 - Staff workload card shows appointment count and booked time by staff member for the selected day.
-- Customer activity card shows new customers created in the selected period and recently updated customers where permitted.
-- Attention card highlights incomplete customer contact information and appointments missing staff or service details.
+- Customer activity card shows recent customers created in the selected period.
+- Quick actions are visible only when the user can create the target record.
 - Dashboard queries are tenant-scoped and cannot aggregate across companies.
-- Dashboard responses are optimized for first-page load and do not require broad scans of transactional tables when rollups exist.
+- Dashboard loads from current operational records for V1.
 
 ## Navigation
 
@@ -58,7 +71,6 @@ The MVP dashboard must help owners and managers understand daily operations with
   - Appointment Status
   - Staff Workload
   - Customer Activity
-  - Needs Attention
 - Contextual actions:
   - open appointment
   - create appointment
@@ -80,10 +92,6 @@ The MVP dashboard must help owners and managers understand daily operations with
 - `staff_profiles`
 - `services`
 - `company_locations`
-- `metric_daily_rollups`
-- `report_definitions`
-- `report_snapshots`
-- `audit_logs`
 
 ## API Requirements
 
@@ -91,29 +99,22 @@ The MVP dashboard must help owners and managers understand daily operations with
 - Provide upcoming appointments API with limit, date range, staff filter, and status filter.
 - Provide appointment status summary API grouped by status for a selected day.
 - Provide staff workload API grouped by staff member for a selected day.
-- Provide customer activity API for new and recently updated customers where permitted.
-- Provide needs-attention API for incomplete customer records and incomplete appointment setup.
+- Provide customer activity API for recently created customers where permitted.
 - APIs must return only cards the user may read.
 - APIs must validate active company membership and module-level read permissions.
 - APIs must use `company_id` and date filters in every dashboard query.
-- APIs must prefer `metric_daily_rollups` or cached snapshots where available for summary cards.
-- APIs must return fresh transactional data for short-range operational cards such as upcoming appointments.
+- APIs must cap result sizes so the dashboard remains fast.
+- APIs must return fresh operational data for upcoming appointments.
 
 ## Edge Function Requirements
+
+No custom Edge Function is required for the first dashboard if Supabase queries meet performance targets. Add one thin function only if the frontend needs a single boot payload.
 
 - `dashboard-summary`
   - validates Supabase JWT, active company membership, and effective read permissions
   - returns a card-based payload tailored to the user role
-  - reads rollups where available and transactional records where current-day freshness is required
+  - reads current operational records for the selected date
   - prevents cross-company aggregation
-- `dashboard-rollup-refresh`
-  - refreshes daily operational rollups for customers, appointments, staff workload, and attention counts
-  - processes one company at a time
-  - stores results in `metric_daily_rollups` or `report_snapshots`
-  - records failures with enough context for support without exposing customer-sensitive details
-- `dashboard-attention-check`
-  - calculates incomplete customer and appointment setup counts
-  - validates that returned record links belong to the active company
 
 ## Future Roadmap
 
