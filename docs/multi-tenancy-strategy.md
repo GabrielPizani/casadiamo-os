@@ -1,400 +1,607 @@
 # Casa Di Amo OS Multi-Tenancy Strategy
 
-## Purpose
+## Executive Summary
 
-This document defines the multi-tenancy strategy for Casa Di Amo OS.
+Casa Di Amo OS will use a shared-database, shared-schema, company-scoped multi-tenant architecture on Supabase and PostgreSQL.
 
-Casa Di Amo OS is a white-label SaaS platform for service businesses. The platform must isolate tenant data, support users who belong to multiple companies, allow controlled platform administration, and scale to many companies without changing the core product architecture.
+The tenant root is `companies`. Every tenant-owned operational record must include or safely derive `company_id`. User access is granted through `company_members`, evaluated with company-scoped roles and permissions. Platform administration is separate from company membership and must be explicitly audited.
 
-## 1. Tenancy Model
+This model is recommended because Casa Di Amo OS is a white-label SaaS platform for service businesses that needs fast onboarding, centralized operations, shared integrations, consistent analytics, and a future path to tenant tiering, partitioning, sharding, and enterprise isolation.
 
-### Primary Model
+The core security principle is defense in depth:
 
-Casa Di Amo OS uses a shared-database, shared-schema, company-scoped multi-tenancy model.
+- Application-level tenant context.
+- PostgreSQL Row Level Security.
+- Tenant-safe foreign keys.
+- RBAC permissions.
+- Service-role controls.
+- Audit logs.
+- Data governance workflows.
 
-The tenant root is:
+## Architectural Decision Record
 
-- `companies`
+### ADR: Multi-Tenancy Model for Casa Di Amo OS
 
-The tenant membership model is:
+Status: Accepted.
 
-- `user_profiles`
-- `company_members`
-- `roles`
-- `permissions`
-- `role_permissions`
+Date: 2026-06-06.
 
-The platform model is:
+### Context
 
-- Platform administration records.
-- Global SaaS plans.
-- Global feature catalog.
-- Tenant billing configuration.
-- Operational records that are explicitly platform-owned.
+Casa Di Amo OS is a multi-tenant SaaS and white-label operating system for service businesses.
 
-### Why This Model
+The platform must support:
 
-Shared schema is the right starting point because Casa Di Amo OS needs:
-
-- Fast product iteration.
-- Centralized analytics.
-- Consistent integrations.
-- Efficient onboarding for small and mid-sized service businesses.
-- Lower operational overhead than one database per tenant.
-- A clear future path to partitioning or tenant tiering.
-
-### Tenant Context
-
-Every authenticated request must resolve an active tenant context before reading or writing tenant-owned records.
-
-The active tenant context is valid only when:
-
-- The user is authenticated through Supabase Auth.
-- The user has a `user_profiles` record.
-- The user has an active `company_members` record for the selected company.
-- The company is active.
-- The user has the required role or permission for the requested action.
-
-Users may belong to multiple companies, but each operational request must execute against one active company context.
-
-## 2. Tenant Isolation Strategy
-
-### Database Isolation
-
-Tenant isolation must be enforced primarily in PostgreSQL, not only in application code.
-
-Tenant-owned tables must follow one of these patterns:
-
-1. Direct ownership with `company_id`.
-2. Derived ownership through a required parent that has `company_id`.
-3. Explicit platform ownership for records that are not tenant data.
-
-Preferred pattern:
-
-- Use direct `company_id` on operational tables.
-- Use composite tenant-safe foreign keys for parent-child relationships.
-- Keep platform-global records physically separate from tenant-owned records.
-
-### Tenant-Safe Foreign Keys
-
-For production deployment, tenant-owned relationships should guarantee same-company ownership at the database level.
-
-Recommended pattern:
-
-- Parent tables expose uniqueness on `(id, company_id)`.
-- Child tables reference parent records with composite foreign keys that include `company_id`.
-- Child records cannot point to a parent in another company.
-
-This is required for high-risk modules:
-
+- Authentication.
+- Companies.
+- Users and team management.
 - Customers.
-- Appointments.
 - Services.
+- Appointments.
 - CRM.
 - Marketing.
 - Automations.
 - Payments.
-- Files.
 - Reports.
-- Integrations.
-- Privacy workflows.
-- AI records.
+- LGPD workflows.
+- Platform billing.
+- Future integrations with HubSpot, ManyChat, WhatsApp, Google Calendar, Calendly, and AI Agents.
 
-### Tenant-Owned Data
+The technical foundation is:
 
-Tenant-owned records include:
+- Supabase.
+- PostgreSQL.
+- Supabase Auth.
+- React and Lovable frontend.
+- Vercel hosting.
 
-- Customers.
-- Services.
+### Decision
+
+Use a shared Supabase project and shared PostgreSQL schema for the initial production architecture.
+
+Use `companies` as the tenant root.
+
+Use `company_members` as the only normal path from a user to tenant data.
+
+Use PostgreSQL Row Level Security as the primary database-level enforcement mechanism.
+
+Use platform administration tables separately from company membership.
+
+Use future tenant tiering, partitioning, sharding, or enterprise isolation only when operational scale, compliance, or revenue requires it.
+
+### Consequences
+
+Positive consequences:
+
+- Faster delivery.
+- Lower operational complexity.
+- Simple onboarding for many service businesses.
+- Centralized analytics and platform operations.
+- Easier shared integration management.
+- Clear path to RLS-based isolation.
+
+Negative consequences:
+
+- RLS policies must be correct.
+- Tenant-safe constraints must be added before production.
+- High-volume tables need partition and retention planning.
+- A single shared database requires careful performance governance.
+- Enterprise tenants may eventually need stronger physical isolation.
+
+## Recommended Approach
+
+The recommended approach is:
+
+1. Start with shared-database, shared-schema tenancy.
+2. Scope operational records by `company_id`.
+3. Enforce access through Supabase Auth, `user_profiles`, `company_members`, RBAC, and RLS.
+4. Keep platform administration separate from company membership.
+5. Treat external integrations as tenant-owned connections.
+6. Use audit logs for sensitive user, company, platform, billing, integration, and compliance actions.
+7. Add partitioning and tenant tiering as scale increases.
+8. Reserve dedicated infrastructure for enterprise or regulated tenants.
+
+## 1. Tenant Model
+
+### Primary Tenant
+
+The primary tenant is:
+
+- `companies`
+
+A company represents one service business using Casa Di Amo OS.
+
+Examples:
+
+- Clinic.
+- Beauty or aesthetics business.
+- Pet shop.
+- Consultancy.
+- Local service provider.
+
+### Tenant Type
+
+Casa Di Amo OS uses company-level tenancy.
+
+This means:
+
+- Customers belong to companies.
+- Staff belongs to companies through memberships.
+- Services belong to companies.
+- Appointments belong to companies.
+- CRM, marketing, automation, payment, report, integration, file, compliance, and AI records belong to companies.
+
+### Tenant Context
+
+Every tenant-scoped operation must resolve an active company context.
+
+Valid tenant context requires:
+
+- Authenticated Supabase user.
+- Existing `user_profiles` record.
+- Active `company_members` record.
+- Active `companies` record.
+- Role and permission allowing the action.
+
+### White-Label Behavior
+
+White-label behavior is company-scoped.
+
+Company-level configuration includes:
+
+- Branding.
+- Logo.
+- Colors.
+- Public profile.
+- Domain configuration.
+- Locations.
+- Notification preferences.
+- Scheduling preferences.
+- Marketing configuration.
+
+White-label configuration must never change tenant isolation rules.
+
+## 2. Tenant Ownership
+
+### Company-Owned Data
+
+A company owns its operational data.
+
+Company-owned data includes:
+
+- Company settings.
+- Company branding.
+- Company locations.
+- Company members.
 - Staff profiles.
+- Customers.
+- Customer addresses.
+- Customer notes.
+- Customer consents.
+- Services.
+- Service resources.
 - Appointments.
 - CRM records.
 - Marketing records.
 - Conversations and messages.
 - Automations.
-- Payments and invoices.
+- Payment records.
 - Reports.
-- Files and documents.
-- Integration connections.
+- Files.
+- Integrations.
 - Webhook events after tenant resolution.
 - Audit logs.
-- Privacy records.
-- AI usage records.
+- Privacy requests.
+- AI prompts, runs, outputs, and usage records.
 
 ### Platform-Owned Data
 
-Platform-owned records include:
+Platform-owned data is global to Casa Di Amo OS.
 
-- SaaS plans.
-- Global feature definitions.
+Platform-owned data includes:
+
 - Platform administrators.
 - Platform roles and permissions.
+- Global SaaS plans.
+- Global features.
+- Plan feature mappings.
 - Platform audit logs.
-- Global operational configuration.
+- Tenant billing configuration.
+- Global operational settings.
 
-Platform-owned records must not be accessible through normal company membership.
+Platform-owned records must not be accessible through normal company roles.
 
-### Polymorphic References
+### User Ownership
 
-Polymorphic references are allowed for audit logs, events, files, AI runs, and integration mappings, but they must be controlled.
+Users are global identities.
 
-Rules:
+`user_profiles` are not owned by one company.
 
-- Always include entity type and entity ID.
-- Include or derive `company_id` for tenant-scoped references.
-- Validate that referenced records belong to the same company.
-- Do not use polymorphic references for core transactional integrity where a direct foreign key is possible.
+Access to a company is granted through `company_members`.
 
-## 3. Company Ownership Model
+This supports:
 
-### Company as System of Record
-
-`companies` is the system tenant boundary.
-
-A company owns:
-
-- Its members.
-- Its customers.
-- Its services.
-- Its appointments.
-- Its CRM pipelines and deals.
-- Its marketing audiences and campaigns.
-- Its automations.
-- Its payment records.
-- Its reports.
-- Its integrations.
-- Its files.
-- Its compliance records.
-
-### User Membership
-
-Users are global identities, not tenant-owned identities.
-
-The relationship between users and companies is represented by `company_members`.
-
-Rules:
-
-- A `user_profile` can belong to multiple companies.
-- A `company_member` belongs to exactly one company.
-- A `company_member` has one active tenant role.
-- A suspended membership loses access immediately.
-- A removed membership must not be able to read historical tenant data.
-
-### Staff Model
-
-Staff identity is tenant-specific.
-
-`staff_profiles` extend `company_members` only inside one company context.
-
-This allows:
-
-- The same person to work for multiple companies.
+- One user working for multiple companies.
 - Different roles per company.
-- Different staff visibility per company.
-- Different service assignments per company.
+- Tenant-specific staff profiles.
+- Tenant-specific access removal.
 
 ### Customer Ownership
 
 Customers are company-owned records.
 
-Initial strategy:
+The same real-world person may appear as separate customer records in multiple companies.
 
-- A customer belongs to exactly one company.
-- The same real-world person may appear as separate customer records in different companies.
-- No cross-company customer deduplication should occur unless a future explicit platform-level identity model is approved.
+No cross-company customer deduplication should occur by default.
 
-This preserves tenant privacy and avoids accidental data sharing between companies.
+This protects tenant privacy and avoids accidental data sharing.
 
-### External Provider Ownership
+### Integration Ownership
 
-Casa Di Amo OS is the source of truth for internal tenant operations.
+Integrations are company-owned.
 
-External systems are integration providers unless a documented decision says otherwise.
+HubSpot, ManyChat, WhatsApp, Google Calendar, Calendly, and AI Agent integrations must be connected to one company context.
 
 Rules:
 
-- External IDs live in mapping tables.
-- Provider payloads do not become core identifiers.
-- Provider-specific structures must not leak into the core tenant model.
-- Integration sync must be idempotent and tenant-scoped.
+- Store external IDs in mapping tables.
+- Do not use provider IDs as internal primary identifiers.
+- Validate webhook tenant context before processing.
+- Keep provider payloads minimized.
+- Make sync jobs idempotent and tenant-scoped.
 
-## 4. Platform Administration Model
+## 3. Tenant Isolation
 
-### Separation of Duties
+### Isolation Layers
 
-Platform administrators are not normal tenant users.
+Tenant isolation must exist at multiple layers:
 
-Platform administration must be modeled separately from company access:
+1. UI tenant context.
+2. Application authorization.
+3. Database RLS.
+4. Tenant-safe foreign keys.
+5. Background job validation.
+6. Service-role controls.
+7. Audit logging.
 
-- `platform_admins`
-- `platform_roles`
-- `platform_permissions`
-- `platform_role_permissions`
-- `platform_admin_audit_logs`
+### Database Ownership Pattern
 
-### Platform Admin Access
+Tenant-owned tables should use direct `company_id` wherever practical.
 
-Platform admin access should be allowed only for:
+Acceptable ownership patterns:
 
-- Support operations.
-- Billing operations.
-- Security incident response.
-- Tenant lifecycle management.
-- Integration troubleshooting.
-- Compliance workflows.
+- Direct `company_id`.
+- Required parent with `company_id`.
+- Explicit platform-owned table with no tenant data.
 
-Platform admin access must be:
+Preferred production pattern:
 
-- Explicit.
-- Audited.
-- Least-privilege.
-- Separate from company membership.
-- Denied by default.
+- Parent has `id`.
+- Parent has `company_id`.
+- Parent has uniqueness on `(id, company_id)`.
+- Child includes `company_id`.
+- Child references parent using composite foreign key.
 
-### Tenant Impersonation
+### Tenant-Safe Foreign Keys
 
-Tenant impersonation should not be the default support model.
+Tenant-safe foreign keys prevent accidental cross-company writes.
 
-If impersonation is required later, it must include:
+Example requirement:
 
-- Explicit reason.
-- Time-bound session.
-- Target company.
-- Target actor.
-- Approval workflow for sensitive tenants.
-- Full audit logging.
-- Visible support marker in application context.
+- An appointment service must reference an appointment from the same company.
+- It must reference a service from the same company.
+- It must not be possible to combine records from different companies.
 
-### Platform Operations
+Apply tenant-safe constraints to:
 
-Platform operations may manage:
+- Customers.
+- Services.
+- Appointments.
+- CRM.
+- Marketing.
+- Automations.
+- Payments.
+- Reports.
+- Integrations.
+- Files.
+- Privacy records.
+- AI records.
 
-- Companies.
-- Company subscription status.
-- Plan entitlements.
-- Tenant suspension.
-- Data export and retention workflows.
-- Integration health.
-- Security investigations.
+### Derived Tenant Tables
 
-Platform operations must not silently modify tenant business records unless the action is explicitly audited and justified.
+Some tables may derive tenant ownership from parents.
 
-## 5. Row Level Security Approach
+Examples:
+
+- Subscription items.
+- Job attempts.
+- API keys.
+
+Recommendation:
+
+- Add direct `company_id` to high-volume or security-sensitive derived tables.
+- Keep purely platform-owned join tables without `company_id`.
+- Document any table where tenant context is derived rather than stored.
+
+## 4. Row Level Security Approach
 
 ### RLS Principle
 
-RLS must be the primary enforcement layer for tenant data isolation in Supabase.
+RLS is the primary database security layer for tenant-owned data.
 
-Application filters are required for performance and UX, but they are not sufficient for security.
+Application filters are required for performance and usability, but they are not sufficient for security.
 
-### RLS Policy Foundation
+### RLS Inputs
 
-RLS policies should use:
+Policies should evaluate:
 
-- Authenticated Supabase user ID.
+- Current Supabase user ID.
 - `user_profiles.auth_user_id`.
-- Active `company_members`.
-- Active `companies`.
-- Requested `company_id`.
-- Role and permission checks for privileged actions.
+- Active company membership.
+- Active company status.
+- Role assignment.
+- Permission key.
+- Target record `company_id`.
 
-Baseline read policy:
+### Baseline Read Policy
 
-- A user can read tenant-owned records only when the record's `company_id` belongs to a company where the user has an active membership.
+A user can read tenant-owned records only when:
 
-Baseline write policy:
+- The user is authenticated.
+- The user has an active profile.
+- The user has active membership in the record's company.
+- The company is active.
 
-- A user can write tenant-owned records only when:
-  - The record's `company_id` belongs to an active membership.
-  - The company is active.
-  - The membership is active.
-  - The role has the required permission.
+### Baseline Write Policy
 
-### RLS Function Strategy
+A user can create, update, or delete tenant-owned records only when:
 
-Use stable helper functions for repeated checks.
+- Baseline read conditions are true.
+- The user's role grants the required permission.
+- The target `company_id` matches the active tenant context.
+- The operation does not violate business restrictions.
 
-Recommended helper concepts:
+### Helper Function Strategy
 
-- `current_user_profile_id()`.
-- `is_company_member(company_id)`.
-- `has_company_permission(company_id, permission_key)`.
-- `is_platform_admin()`.
+Use carefully reviewed database helper functions for repeated RLS checks.
 
-These functions should be reviewed carefully to avoid security definer mistakes and accidental privilege escalation.
+Recommended concepts:
+
+- Current user profile.
+- Active company membership.
+- Company permission lookup.
+- Platform admin check.
+- Tenant ownership check.
+
+Security notes:
+
+- Avoid unsafe `security definer` functions.
+- Keep helper functions small.
+- Avoid dynamic SQL in policy helpers.
+- Test negative cross-tenant cases.
 
 ### Service Role Strategy
 
-The service role must bypass RLS only for trusted backend operations.
+Service-role access is allowed only for trusted backend operations.
 
-Allowed uses:
+Allowed use cases:
 
-- Background workers.
-- Integration sync jobs.
 - Webhook processing.
-- Data migration.
-- Scheduled rollups.
+- Integration sync jobs.
+- Background workers.
+- Data migrations.
+- Scheduled reporting rollups.
 - Tenant lifecycle jobs.
+- Compliance export and deletion jobs.
+- AI agent orchestration jobs.
 
 Rules:
 
-- Never expose service-role credentials to the frontend.
-- Keep service-role operations narrow and auditable.
-- Include `company_id` in service-role writes whenever the record is tenant-owned.
-- Validate tenant ownership in service code even when RLS is bypassed.
+- Never expose service-role keys to the frontend.
+- Validate tenant ownership in service code.
+- Include `company_id` on tenant-owned writes.
+- Log sensitive service-role operations.
+- Keep worker permissions narrow by responsibility.
 
-### RLS and Platform Administration
+## 5. Platform Administration
 
-Platform administrator access should not be implemented as broad tenant membership.
+### Administration Boundary
 
-Preferred approach:
+Platform administrators are not company members by default.
 
-- Platform admin policies are separate from company membership policies.
-- Platform admin reads and writes are audited.
-- Sensitive operations require explicit platform permissions.
-- Tenant business data access by platform admins should be exceptional, not routine.
+Platform admin access must use separate entities:
 
-### RLS Rollout Order
+- `platform_admins`.
+- `platform_roles`.
+- `platform_permissions`.
+- `platform_role_permissions`.
+- `platform_admin_audit_logs`.
 
-Recommended rollout:
+### Allowed Platform Operations
 
-1. Add tenant-safe composite constraints.
-2. Add direct `company_id` where needed for tenant-derived tables.
-3. Create helper functions.
-4. Enable RLS on tenant-owned tables.
-5. Add read policies.
-6. Add write policies.
-7. Add privileged action policies.
-8. Add platform admin policies.
-9. Test cross-tenant denial cases.
-10. Test service-role workflows separately.
+Platform administrators may manage:
 
-## 6. Future Scaling Strategy
+- Companies.
+- Tenant status.
+- Tenant billing state.
+- SaaS plans.
+- Feature entitlements.
+- Integration health.
+- Security investigations.
+- Compliance workflows.
+- Support operations.
+- Platform-level audit review.
 
-### Phase 1: Shared Schema
+### Restrictions
 
-Initial production model:
+Platform administrators must not:
+
+- Silently modify tenant business records.
+- Use company roles as a shortcut for platform access.
+- Access tenant data without justification.
+- Bypass audit logging.
+- Use service-role access from frontend flows.
+
+### Support Access
+
+Support access must be:
+
+- Explicit.
+- Time-bound.
+- Reason-bound.
+- Audited.
+- Visible in support context.
+
+Tenant impersonation should be exceptional, not a default support workflow.
+
+## 6. Cross-Tenant Protection
+
+### Non-Negotiable Rules
+
+- No tenant-owned data without tenant boundary.
+- No cross-company operational joins for product behavior.
+- No cross-company customer deduplication by default.
+- No user-supplied `company_id` without membership validation.
+- No provider webhook processing without tenant resolution.
+- No platform admin access without audit logs.
+- No RLS rollout without negative cross-tenant tests.
+
+### Cross-Tenant Risk Areas
+
+High-risk areas:
+
+- Appointments referencing services or staff from another company.
+- CRM deals linked to customers from another company.
+- Marketing deliveries targeting customers from another company.
+- Payments linked to invoices from another company.
+- Files linked to records from another company.
+- Webhooks mapped to the wrong integration connection.
+- AI runs using context from another company.
+- Platform support access without audit.
+
+### Required Protections
+
+Use:
+
+- Tenant-safe composite FKs.
+- RLS policies.
+- RBAC permission checks.
+- Tenant-scoped idempotency keys.
+- Tenant-scoped background jobs.
+- Tenant-aware indexes.
+- Audit logs.
+- Integration connection ownership checks.
+
+## 7. User Membership Model
+
+### Core Entities
+
+Membership is modeled with:
+
+- `auth.users`.
+- `user_profiles`.
+- `company_members`.
+- `roles`.
+- `permissions`.
+- `role_permissions`.
+- `staff_profiles`.
+
+### Membership Rules
+
+- One Supabase user maps to one application user profile.
+- One user profile can belong to many companies.
+- One company has many members.
+- One company member has one active role in that company.
+- Staff profile is tenant-specific.
+- Removing membership removes tenant access.
+- Suspending membership immediately blocks tenant access.
+
+### Role Model
+
+Default company roles:
+
+- Company Owner.
+- Manager.
+- Employee.
+- Viewer.
+
+Platform role:
+
+- Platform Admin.
+
+Company roles must not grant platform privileges.
+
+Platform roles must not imply company membership.
+
+## 8. Company Hierarchy
+
+### Current Hierarchy
+
+Initial hierarchy:
+
+1. Platform.
+2. Company.
+3. Company locations.
+4. Company members.
+5. Staff profiles.
+6. Operational records.
+
+### Company Locations
+
+Locations belong to one company.
+
+Locations support:
+
+- Scheduling.
+- Staff availability.
+- Service delivery.
+- Reports.
+- Resource booking.
+
+### Future Multi-Location and Group Support
+
+Future hierarchy may include:
+
+- Company groups.
+- Franchises.
+- Regional accounts.
+- Brands.
+- Sub-companies.
+
+Do not add group-level data sharing until explicit product requirements exist.
+
+Recommended future pattern:
+
+- `company_groups`.
+- `company_group_memberships`.
+- Group-level reporting only.
+- No automatic customer sharing between companies.
+
+## 9. Future Scaling Strategy
+
+### Phase 1: Shared Supabase Project
+
+Initial production:
 
 - One Supabase project.
 - Shared PostgreSQL schema.
-- All tenant-owned records scoped by `company_id`.
-- RLS enabled on tenant-owned tables.
-- Tenant-aware indexes for operational paths.
+- `company_id` scoped records.
+- RLS on tenant-owned tables.
+- Tenant-aware indexes.
+- Central integration workers.
 
-This supports early scale with the simplest operational model.
-
-### Phase 2: Tenant-Aware Performance Optimization
+### Phase 2: Performance Scaling
 
 As usage grows:
 
 - Add partial indexes for active records.
-- Add composite indexes beginning with `company_id`.
-- Partition high-volume event tables by time.
-- Archive old events, webhooks, messages, and audit records.
-- Use rollup tables for dashboards.
-- Move expensive analytics away from transactional tables.
+- Add composite indexes starting with `company_id`.
+- Partition high-volume event and history tables by time.
+- Archive old webhook, message, audit, automation, and usage records.
+- Use report rollups and snapshots.
+- Keep dashboards away from raw transactional scans.
 
-High-volume candidates:
+High-volume tables:
 
 - `audit_logs`.
 - `webhook_events`.
@@ -413,66 +620,353 @@ High-volume candidates:
 
 ### Phase 3: Tenant Tiering
 
-Larger tenants may require differentiated scaling.
+Tenant tiering should be based on billing plan, usage, compliance, and operational load.
 
-Possible strategies:
+Possible tiering:
 
-- Dedicated read replicas for analytics-heavy tenants.
-- Dedicated storage buckets for large tenants.
-- Tenant-specific background job queues.
-- Higher rate limits and isolated worker pools.
-- Advanced retention policies by plan.
-
-Tenant tiering should be entitlement-driven through plans and feature access.
+- Higher rate limits.
+- Dedicated worker queues.
+- Dedicated storage buckets.
+- Priority integration sync.
+- Advanced retention controls.
+- Larger report windows.
+- Higher AI usage limits.
 
 ### Phase 4: Tenant Sharding
 
-If shared-schema scale becomes insufficient, introduce tenant sharding.
+Introduce sharding only when shared schema scale becomes insufficient.
 
-Shard routing should be based on company identity.
+Sharding requirements:
 
-Requirements before sharding:
-
-- Stable company IDs.
-- No cross-tenant operational joins.
-- External integrations scoped by company.
-- Background jobs scoped by company.
+- Stable `company_id`.
+- Tenant-scoped jobs.
+- Tenant-scoped integrations.
 - Tenant export and migration tooling.
-- Central platform catalog for tenant-to-shard routing.
+- Central tenant routing catalog.
+- No required cross-tenant joins for product workflows.
 
 ### Phase 5: Enterprise Isolation
 
-For large or regulated customers, future isolation options may include:
+Enterprise isolation may include:
 
 - Dedicated database.
 - Dedicated Supabase project.
 - Dedicated storage.
-- Dedicated worker pool.
+- Dedicated integration workers.
 - Dedicated analytics pipeline.
+- Data residency controls.
 
-This should be offered only when justified by compliance, revenue, scale, or data residency requirements.
+Offer only when justified by compliance, revenue, scale, or enterprise contract.
 
-## Non-Negotiable Rules
+## 10. Data Governance
 
-- No tenant-owned operational data without a tenant boundary.
-- No frontend access using service-role credentials.
-- No platform admin access without audit logs.
-- No cross-tenant data sharing by default.
-- No provider-specific IDs as primary business identifiers.
-- No RLS rollout without negative cross-tenant tests.
-- No production deployment without tenant-safe foreign key review.
+### Governance Scope
+
+Data governance applies to:
+
+- Tenant data.
+- Platform data.
+- Integration data.
+- Billing data.
+- Audit data.
+- AI data.
+- Compliance data.
+
+### LGPD Alignment
+
+The platform must support:
+
+- Consent management.
+- Consent audit history.
+- Data subject requests.
+- Data export.
+- Data deletion or anonymization.
+- Retention policies.
+- Sensitive data handling.
+
+### Data Retention
+
+Retention must be tenant-aware.
+
+Rules:
+
+- Retention policies apply by company and entity type.
+- Legal hold overrides normal retention.
+- Financial and audit records should not be casually deleted.
+- Old operational events should be archived or deleted through controlled jobs.
+
+### Data Export
+
+Exports must:
+
+- Resolve tenant context.
+- Validate requester permission.
+- Include only owned data.
+- Exclude secrets and unrelated tenant data.
+- Be audited.
+- Use expiring file access.
+
+### Data Deletion
+
+Deletion must:
+
+- Validate tenant ownership.
+- Respect legal and financial retention.
+- Prefer anonymization when business records must remain.
+- Stop future marketing and automation usage.
+- Preserve minimal audit proof.
+
+### AI Data Governance
+
+AI Agents must follow tenant boundaries.
+
+Rules:
+
+- AI prompts must not mix company contexts.
+- AI runs must include or derive `company_id`.
+- AI outputs containing personal data follow retention and deletion policy.
+- AI usage records support billing and audit.
+- Sensitive customer context should be minimized before calling AI providers.
+
+## Alternative Approaches Considered
+
+### Alternative 1: Database Per Tenant
+
+Description:
+
+- Each company receives its own database.
+
+Pros:
+
+- Strong physical isolation.
+- Easier tenant-level backup and restore.
+- Easier enterprise compliance story.
+
+Cons:
+
+- High operational complexity.
+- Harder migrations.
+- Harder cross-tenant platform analytics.
+- More expensive for small tenants.
+- Slower onboarding.
+
+Decision:
+
+- Not recommended for the default model.
+- Keep as future enterprise option.
+
+### Alternative 2: Schema Per Tenant
+
+Description:
+
+- One database with one PostgreSQL schema per company.
+
+Pros:
+
+- Better logical isolation than shared tables.
+- Less heavy than database per tenant.
+
+Cons:
+
+- Migration complexity grows with tenant count.
+- Harder query tooling.
+- Supabase and RLS patterns become more complex.
+- Integrations and analytics become harder.
+
+Decision:
+
+- Not recommended.
+
+### Alternative 3: Shared Schema Without RLS
+
+Description:
+
+- Use only application filters with `company_id`.
+
+Pros:
+
+- Simpler initial implementation.
+- Less database policy work.
+
+Cons:
+
+- Unsafe for multi-tenant SaaS.
+- A single query bug can leak tenant data.
+- Does not meet production security expectations.
+
+Decision:
+
+- Rejected.
+
+### Alternative 4: Shared Schema With RLS
+
+Description:
+
+- One shared schema with company-scoped rows and RLS policies.
+
+Pros:
+
+- Best fit for Supabase.
+- Good balance of speed, cost, isolation, and scale.
+- Supports centralized analytics.
+- Compatible with tenant tiering later.
+
+Cons:
+
+- Requires careful policy design.
+- Requires tenant-safe constraints.
+- Requires negative security tests.
+
+Decision:
+
+- Accepted as default approach.
+
+## Tradeoffs
+
+### Simplicity vs Isolation
+
+Shared schema is simpler than database-per-tenant, but requires strong RLS and tenant-safe constraints.
+
+### Speed vs Governance
+
+Fast onboarding is easier with shared infrastructure, but governance must be enforced through policies, audit logs, and data lifecycle workflows.
+
+### Centralized Analytics vs Physical Separation
+
+Centralized analytics are easier in a shared model. Physical separation may be required later for enterprise tenants.
+
+### Flexible Integrations vs Tenant Safety
+
+Integrations need flexible mappings and webhook handling, but every provider event must resolve to exactly one company before processing.
+
+### AI Capability vs Privacy
+
+AI Agents can improve operations, but prompts, outputs, and usage records must remain tenant-scoped and governed by retention and privacy rules.
+
+## Risks
+
+### Risk: Incorrect RLS Policy
+
+Impact:
+
+- Cross-tenant data exposure.
+
+Mitigation:
+
+- Keep policies simple.
+- Use helper functions.
+- Add negative cross-tenant tests.
+- Review policies before deploy.
+
+### Risk: Cross-Tenant Foreign Key References
+
+Impact:
+
+- Data corruption or leakage through invalid relationships.
+
+Mitigation:
+
+- Add composite tenant-safe FKs.
+- Add `(id, company_id)` uniqueness to parent tables.
+- Validate service-role writes.
+
+### Risk: Service Role Misuse
+
+Impact:
+
+- RLS bypass and broad data exposure.
+
+Mitigation:
+
+- Never expose service-role keys to frontend.
+- Limit service-role use to backend workers.
+- Log sensitive service-role operations.
+
+### Risk: Integration Webhook Misrouting
+
+Impact:
+
+- Provider events update the wrong tenant.
+
+Mitigation:
+
+- Resolve tenant through integration connection.
+- Validate provider signatures.
+- Use idempotency keys.
+- Store webhook events before processing.
+
+### Risk: High-Volume Table Growth
+
+Impact:
+
+- Slow queries, bloated indexes, expensive dashboards.
+
+Mitigation:
+
+- Partition event tables.
+- Add rollups.
+- Archive old records.
+- Use tenant-aware indexes.
+
+### Risk: Platform Admin Overreach
+
+Impact:
+
+- Unauthorized tenant data access.
+
+Mitigation:
+
+- Separate platform roles.
+- Require reason-bound access.
+- Audit every support action.
+- Avoid default impersonation.
+
+### Risk: AI Data Leakage
+
+Impact:
+
+- Sensitive customer context sent to or mixed through AI workflows.
+
+Mitigation:
+
+- Scope AI runs by company.
+- Minimize prompt data.
+- Audit AI runs.
+- Apply retention rules to AI outputs.
+
+## Final Recommendation
+
+Casa Di Amo OS should proceed with shared-database, shared-schema, company-scoped tenancy on Supabase and PostgreSQL.
+
+The final recommended model is:
+
+- `companies` is the tenant root.
+- `company_members` grants tenant access.
+- `roles`, `permissions`, and `role_permissions` define company RBAC.
+- Platform administration is separate from company membership.
+- Tenant-owned tables include or derive `company_id`.
+- RLS enforces tenant access at the database layer.
+- Composite tenant-safe FKs prevent cross-tenant relationship corruption.
+- Service-role access is backend-only and audited.
+- Integrations are tenant-owned.
+- AI Agents are tenant-scoped and governed.
+- Scaling starts with shared schema and evolves toward partitioning, tenant tiering, sharding, or enterprise isolation only when justified.
+
+This approach provides the best balance of speed, security, scalability, and operational simplicity for a white-label SaaS platform serving service businesses.
 
 ## Deployment Readiness Checklist
 
 Before production:
 
-- Confirm every tenant-owned table has or derives `company_id`.
-- Add composite tenant-safe foreign keys for critical relationships.
+- Add tenant-safe composite foreign keys.
+- Add direct `company_id` to important tenant-derived tables.
 - Enable RLS on tenant-owned tables.
-- Add membership-based read policies.
-- Add permission-based write policies.
-- Add platform admin policies separately.
+- Create membership-based read policies.
+- Create permission-based write policies.
+- Create separate platform admin policies.
 - Add cross-tenant denial tests.
-- Add service-role workflow tests.
+- Add service-role worker tests.
+- Add integration webhook tenant-resolution tests.
+- Add AI tenant-boundary tests.
 - Add audit logging for platform access.
-- Add partitioning and retention plans for high-volume tables.
+- Add retention and partitioning plans for high-volume tables.
