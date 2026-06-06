@@ -42,8 +42,17 @@ Expected future commands (not yet in repo):
 ### VM tooling already available
 
 - **Node.js** v22 and **npm** — ready for when a JavaScript/TypeScript app is scaffolded
+
+- **pnpm** — available if the project adopts it
 - **Python 3.12** — available for scripts/automation if added later
 - **Git** — repository clones cleanly on `main`
+
+Docker and Supabase CLI are **not** pre-installed. Install them only when `supabase/` config or `docker-compose.yml` is added to the repo.
+
+=======
+- **Python 3.12** — available for scripts/automation if added later
+- **Git** — repository clones cleanly on `main`
+
 
 ### Supabase MCP
 
